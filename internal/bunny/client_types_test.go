@@ -99,3 +99,52 @@ func TestMonitorTypeFromString(t *testing.T) {
 		})
 	}
 }
+
+func TestSmartRoutingType_String(t *testing.T) {
+	cases := []struct {
+		in   SmartRoutingType
+		want string
+	}{
+		{SmartRoutingNone, "none"},
+		{SmartRoutingLatency, "latency"},
+		{SmartRoutingGeolocation, "geo"},
+		{SmartRoutingType(-1), "none"},
+		{SmartRoutingType(99), "none"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.want, func(t *testing.T) {
+			if got := tc.in.String(); got != tc.want {
+				t.Errorf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSmartRoutingTypeFromString(t *testing.T) {
+	cases := []struct {
+		in     string
+		want   SmartRoutingType
+		wantOK bool
+	}{
+		{"none", SmartRoutingNone, true},
+		{"", SmartRoutingNone, true},
+		{"latency", SmartRoutingLatency, true},
+		{"LATENCY", SmartRoutingLatency, true},
+		{"geo", SmartRoutingGeolocation, true},
+		{"geolocation", SmartRoutingGeolocation, true},
+		{"Geolocation", SmartRoutingGeolocation, true},
+		{"garbage", SmartRoutingNone, false},
+		{"geography", SmartRoutingNone, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got, ok := SmartRoutingTypeFromString(tc.in)
+			if ok != tc.wantOK {
+				t.Errorf("ok: got %v want %v", ok, tc.wantOK)
+			}
+			if got != tc.want {
+				t.Errorf("value: got %v want %v", got, tc.want)
+			}
+		})
+	}
+}
