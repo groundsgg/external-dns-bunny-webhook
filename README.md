@@ -32,8 +32,8 @@ provider:
   name: webhook
   webhook:
     image:
-      repository: ghcr.io/contaimlabs/external-dns-bunny-webhook
-      tag: v0.3.0
+      repository: ghcr.io/groundsgg/external-dns-bunny-webhook
+      tag: v0.4.0
     env:
       - name: BUNNY_API_KEY
         valueFrom:
