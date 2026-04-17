@@ -47,4 +47,14 @@ func TestApplyChanges_NilOrEmpty(t *testing.T) {
 	if got := mc.CountByMethod("DeleteRecord"); got != 0 {
 		t.Errorf("expected 0 delete calls, got %d", got)
 	}
+
+	// Same shape under DryRun — exercises applyChangesDryRun's nil guard.
+	pdry := newTestProvider(t, mc)
+	pdry.Options.DryRun = true
+	if err := pdry.ApplyChanges(context.Background(), nil); err != nil {
+		t.Fatalf("dry-run nil changes should be a no-op, got %v", err)
+	}
+	if err := pdry.ApplyChanges(context.Background(), &plan.Changes{}); err != nil {
+		t.Fatalf("dry-run empty changes should be a no-op, got %v", err)
+	}
 }

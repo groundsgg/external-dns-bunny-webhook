@@ -5,6 +5,10 @@ import (
 	"sync"
 )
 
+// Compile-time check that mockClient satisfies Client. Without this, a
+// future addition to the Client interface would silently break the mock.
+var _ Client = (*mockClient)(nil)
+
 type mockCall struct {
 	method string
 	args   any
