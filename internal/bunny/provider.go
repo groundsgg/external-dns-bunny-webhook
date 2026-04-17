@@ -477,14 +477,17 @@ func stringSet(in []string) map[string]struct{} {
 }
 
 // endpointMetadataEqual reports whether two endpoints share the same
-// non-target settings (TTL + provider-specific options).
+// non-target settings (TTL + provider-specific options). Uses the
+// pointer-aware providerSpecificOptionsEqual because options now carry
+// nullable coordinate pointers.
 func endpointMetadataEqual(a, b *endpoint.Endpoint) bool {
 	if a.RecordTTL != b.RecordTTL {
 		return false
 	}
-	ao := providerSpecificOptionsFromEndpoint(a)
-	bo := providerSpecificOptionsFromEndpoint(b)
-	return ao == bo
+	return providerSpecificOptionsEqual(
+		providerSpecificOptionsFromEndpoint(a),
+		providerSpecificOptionsFromEndpoint(b),
+	)
 }
 
 // deleteEndpoints deletes every Bunny record matching the (name, type, value)
