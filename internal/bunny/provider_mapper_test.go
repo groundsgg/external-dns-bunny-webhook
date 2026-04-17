@@ -148,3 +148,68 @@ func TestAggregateRecords_MixedSmartAndNonSmart(t *testing.T) {
 		t.Errorf("smart endpoint missing or wrong: %v", smart)
 	}
 }
+
+func TestAggregateRecords_UsesCommentAsSetIdentifier(t *testing.T) {
+	// Comment is set on write to preserve user-provided SetIdentifier.
+	// On read, aggregateRecords must surface it as ep.SetIdentifier.
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100,
+				Comment:          "gc-eu-hetzner-fsn1-0",
+				SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(eps))
+	}
+	if eps[0].SetIdentifier != "gc-eu-hetzner-fsn1-0" {
+		t.Errorf("SetIdentifier: got %q want gc-eu-hetzner-fsn1-0 (Comment wins over smart discriminator)", eps[0].SetIdentifier)
+	}
+}
+
+func TestAggregateRecords_FallsBackToSmartDiscriminatorWhenCommentEmpty(t *testing.T) {
+	// For records predating the Comment-based SetIdentifier (e.g. dashboard-created)
+	// the smart discriminator is still used as the SetIdentifier.
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100,
+				Comment:          "",
+				SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 1 {
+		t.Fatalf("expected 1 endpoint, got %d", len(eps))
+	}
+	if eps[0].SetIdentifier != "latency:DE" {
+		t.Errorf("SetIdentifier fallback: got %q want latency:DE", eps[0].SetIdentifier)
+	}
+}
+
+func TestAggregateRecords_CommentGroupsIndependentlyFromSmartSettings(t *testing.T) {
+	// Two records with identical smart settings but different user-provided
+	// SetIdentifiers (Comments) must produce two endpoints, not one.
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100,
+				Comment: "cluster-a", SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "2.2.2.2", Weight: 100,
+				Comment: "cluster-b", SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 2 {
+		t.Fatalf("expected 2 endpoints (different Comments), got %d", len(eps))
+	}
+	ids := map[string]bool{}
+	for _, ep := range eps {
+		ids[ep.SetIdentifier] = true
+	}
+	if !ids["cluster-a"] || !ids["cluster-b"] {
+		t.Errorf("expected both cluster-a and cluster-b, got %v", ids)
+	}
+}

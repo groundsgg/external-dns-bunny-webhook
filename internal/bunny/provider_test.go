@@ -453,3 +453,44 @@ func TestApplyChanges_UpdateSmartRecord(t *testing.T) {
 		t.Errorf("UpdateRecordRequest.LatencyZone: got %q want DE", req.LatencyZone)
 	}
 }
+
+func TestAdjustEndpoints_CanonicalizesDefaultWeightAway(t *testing.T) {
+	// User explicitly sets weight=100 on their Service. ApplyToEndpoint
+	// omits defaults, so canonicalizing should strip the key entirely —
+	// matching what Records() would emit for the same record.
+	mc := &mockClient{}
+	p := newTestProvider(t, mc)
+
+	ep := &endpoint.Endpoint{DNSName: "api.example.com", RecordType: "A"}
+	ep.WithProviderSpecific(providerSpecificWeight, "100")
+
+	out, err := p.AdjustEndpoints([]*endpoint.Endpoint{ep})
+	if err != nil {
+		t.Fatalf("AdjustEndpoints: %v", err)
+	}
+	if _, ok := out[0].GetProviderSpecificProperty(providerSpecificWeight); ok {
+		t.Errorf("weight=100 (default) should be stripped by canonicalization")
+	}
+}
+
+func TestAdjustEndpoints_CanonicalizesFloatFormat(t *testing.T) {
+	// User writes "50.00" in annotation; FormatFloat with -1 precision
+	// emits "50". After canonicalization the user's endpoint carries the
+	// webhook's canonical representation so no drift is reported.
+	mc := &mockClient{}
+	p := newTestProvider(t, mc)
+
+	ep := &endpoint.Endpoint{DNSName: "api.example.com", RecordType: "A"}
+	ep.WithProviderSpecific(providerSpecificSmartType, "geo")
+	ep.WithProviderSpecific(providerSpecificSmartGeoLat, "50.00")
+	ep.WithProviderSpecific(providerSpecificSmartGeoLong, "8.68")
+
+	out, err := p.AdjustEndpoints([]*endpoint.Endpoint{ep})
+	if err != nil {
+		t.Fatalf("AdjustEndpoints: %v", err)
+	}
+	lat, _ := out[0].GetProviderSpecificProperty(providerSpecificSmartGeoLat)
+	if lat != "50" {
+		t.Errorf("canonical lat: got %q want 50 (shortest round-trip form)", lat)
+	}
+}

@@ -15,6 +15,11 @@ const (
 	providerSpecificSmartLatencyZone = "webhook/bunny-smart-latency-zone"
 	providerSpecificSmartGeoLat      = "webhook/bunny-smart-geo-lat"
 	providerSpecificSmartGeoLong     = "webhook/bunny-smart-geo-long"
+
+	// defaultWeight mirrors Bunny's default record weight. Used both as
+	// the zero-value fallback in parsing and as the "don't emit if
+	// unchanged" threshold in serialization.
+	defaultWeight = 100
 )
 
 type providerSpecificOptions struct {
@@ -46,20 +51,20 @@ func providerSpecificOptionsFromEndpoint(e *endpoint.Endpoint) providerSpecificO
 		var err error
 		opts.Weight, err = strconv.Atoi(weight)
 		if err != nil {
-			opts.Weight = 100
+			opts.Weight = defaultWeight
 		}
 
 		if opts.Weight < 1 {
 			opts.Weight = 1
 		}
 
-		if opts.Weight > 100 {
-			opts.Weight = 100
+		if opts.Weight > defaultWeight {
+			opts.Weight = defaultWeight
 		}
 	}
 
 	if opts.Weight == 0 {
-		opts.Weight = 100
+		opts.Weight = defaultWeight
 	}
 
 	opts.SmartType, opts.LatencyZone, opts.GeoLat, opts.GeoLong = parseSmartRouting(e)
@@ -143,9 +148,19 @@ func providerSpecificOptionsFromRecord(r *Record) *providerSpecificOptions {
 }
 
 func (p *providerSpecificOptions) ApplyToEndpoint(e *endpoint.Endpoint) {
-	e.WithProviderSpecific(providerSpecificMonitorType, p.MonitorType.String())
-	e.WithProviderSpecific(providerSpecificWeight, strconv.Itoa(p.Weight))
-	e.WithProviderSpecific(providerSpecificDisabled, strconv.FormatBool(p.Disabled))
+	// Only emit non-default values — otherwise external-dns's planner sees
+	// a permanent diff between the user's source (no property set) and the
+	// webhook's round-trip (property set to its default) and issues
+	// redundant updates on every reconcile.
+	if p.MonitorType != MonitorTypeNone {
+		e.WithProviderSpecific(providerSpecificMonitorType, p.MonitorType.String())
+	}
+	if p.Weight != defaultWeight {
+		e.WithProviderSpecific(providerSpecificWeight, strconv.Itoa(p.Weight))
+	}
+	if p.Disabled {
+		e.WithProviderSpecific(providerSpecificDisabled, strconv.FormatBool(p.Disabled))
+	}
 
 	// Smart keys are only emitted when set so non-smart endpoints stay clean.
 	if p.SmartType != SmartRoutingNone {

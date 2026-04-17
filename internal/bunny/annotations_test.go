@@ -268,3 +268,48 @@ func TestProviderSpecificOptionsEqual(t *testing.T) {
 		t.Errorf("both nil coords should compare equal")
 	}
 }
+
+func TestApplyToEndpoint_DoesNotEmitDefaults(t *testing.T) {
+	// A non-smart record at the Bunny defaults (weight=100, monitor=none,
+	// disabled=false) must not emit any ProviderSpecific keys — otherwise
+	// the external-dns planner sees a permanent diff against a user's
+	// Service that doesn't set those annotations.
+	src := providerSpecificOptions{
+		MonitorType: MonitorTypeNone,
+		Weight:      defaultWeight,
+		Disabled:    false,
+	}
+	ep := &endpoint.Endpoint{}
+	src.ApplyToEndpoint(ep)
+
+	for _, key := range []string{
+		providerSpecificMonitorType,
+		providerSpecificWeight,
+		providerSpecificDisabled,
+	} {
+		if v, ok := ep.GetProviderSpecificProperty(key); ok {
+			t.Errorf("%s should not be emitted for default values, got %q", key, v)
+		}
+	}
+}
+
+func TestApplyToEndpoint_EmitsNonDefaults(t *testing.T) {
+	// Regression check for Fix 2: non-default values must still round-trip.
+	src := providerSpecificOptions{
+		MonitorType: MonitorTypeHTTP,
+		Weight:      50,
+		Disabled:    true,
+	}
+	ep := &endpoint.Endpoint{}
+	src.ApplyToEndpoint(ep)
+
+	if v, ok := ep.GetProviderSpecificProperty(providerSpecificMonitorType); !ok || v != "http" {
+		t.Errorf("monitor-type: got %q ok=%v", v, ok)
+	}
+	if v, ok := ep.GetProviderSpecificProperty(providerSpecificWeight); !ok || v != "50" {
+		t.Errorf("weight: got %q ok=%v", v, ok)
+	}
+	if v, ok := ep.GetProviderSpecificProperty(providerSpecificDisabled); !ok || v != "true" {
+		t.Errorf("disabled: got %q ok=%v", v, ok)
+	}
+}
