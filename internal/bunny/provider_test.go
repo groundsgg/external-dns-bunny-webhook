@@ -217,3 +217,42 @@ func TestApplyChanges_DeletesEveryTarget(t *testing.T) {
 		t.Errorf("DeleteRecord calls: got %d want 2", got)
 	}
 }
+
+func TestAdjustEndpoints_EmptyZoneCacheSkipsAPI(t *testing.T) {
+	mc := &mockClient{}
+	p := newTestProvider(t, mc)
+
+	in := []*endpoint.Endpoint{{DNSName: "api.example.com", RecordType: "A"}}
+	out, err := p.AdjustEndpoints(in)
+	if err != nil {
+		t.Fatalf("AdjustEndpoints: %v", err)
+	}
+	if len(out) != 1 {
+		t.Errorf("expected pass-through, got %d", len(out))
+	}
+	if got := mc.CountByMethod("ListZones"); got != 0 {
+		t.Errorf("ListZones calls: got %d want 0 (empty cache should skip)", got)
+	}
+}
+
+func TestAdjustEndpoints_CopiesLabelsFromExisting(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
+		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100},
+	}}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	incoming := &endpoint.Endpoint{
+		DNSName:    "api.example.com",
+		RecordType: "A",
+		Targets:    endpoint.Targets{"1.1.1.1"},
+		Labels:     endpoint.Labels{"caller": "external-dns"},
+	}
+	out, err := p.AdjustEndpoints([]*endpoint.Endpoint{incoming})
+	if err != nil {
+		t.Fatalf("AdjustEndpoints: %v", err)
+	}
+	if len(out) != 1 || out[0].Labels["caller"] != "external-dns" {
+		t.Fatalf("incoming labels lost: %v", out)
+	}
+}

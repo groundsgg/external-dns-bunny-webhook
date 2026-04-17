@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/samber/oops"
@@ -242,37 +243,42 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 	return nil
 }
 
-// AdjustEndpoints canonicalizes a set of candidate endpoints.
-// It is called with a set of candidate endpoints obtained from the various sources.
-// It returns a set modified as required by the provider. The provider is responsible for
-// adding, removing, and modifying the ProviderSpecific properties to match
-// the endpoints that the provider returns in `Records` so that the change plan will not have
-// unnecessary (potentially failing) changes. It may also modify other fields, add, or remove
-// Endpoints. It is permitted to modify the supplied endpoints.
+// AdjustEndpoints canonicalizes a set of candidate endpoints, copying
+// provider-specific labels from any matching record we already know about.
+// Skips the Bunny API entirely when the zone cache is empty (e.g. before
+// the first reconcile completes). Bounded by a 30s timeout because
+// external-dns's Provider interface in 0.15.1 doesn't pass us a context.
 func (p *Provider) AdjustEndpoints(incoming []*endpoint.Endpoint) ([]*endpoint.Endpoint, error) {
-	errs := oops.In("Provider").
-		Span("AdjustEndpoints")
+	errs := oops.In("Provider").Span("AdjustEndpoints")
 
-	fetched, err := p.Records(context.Background())
+	if len(p.allZones()) == 0 {
+		return incoming, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	fetched, err := p.Records(ctx)
 	if err != nil {
-		slog.Error("Failed to fetch records",
-			slog.Any("error", err))
-
+		slog.Error("Failed to fetch records", slog.Any("error", err))
 		return nil, errs.Wrapf(err, "failed to fetch records")
 	}
 
 	for _, editing := range incoming {
 		for _, checked := range fetched {
-			if editing.DNSName != checked.DNSName || editing.RecordType != checked.RecordType || editing.SetIdentifier != checked.SetIdentifier {
+			if editing.DNSName != checked.DNSName ||
+				editing.RecordType != checked.RecordType ||
+				editing.SetIdentifier != checked.SetIdentifier {
 				continue
 			}
-
 			for key, value := range checked.Labels {
+				if editing.Labels == nil {
+					editing.Labels = endpoint.Labels{}
+				}
 				editing.Labels[key] = value
 			}
 		}
 	}
-
 	return incoming, nil
 }
 
