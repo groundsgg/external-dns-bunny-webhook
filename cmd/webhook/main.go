@@ -68,10 +68,12 @@ func createLogger(opts Options) *slog.Logger {
 
 	var handler slog.Handler
 	switch strings.ToLower(opts.LogFormat) {
-	case "text":
-		handler = slog.NewTextHandler(os.Stdout, handlerOpts)
 	case "json":
 		handler = slog.NewJSONHandler(os.Stdout, handlerOpts)
+	default:
+		// Includes "text" and any unrecognized value — a misconfigured
+		// LOG_FORMAT must not panic at startup.
+		handler = slog.NewTextHandler(os.Stdout, handlerOpts)
 	}
 
 	return slog.New(handler)
