@@ -215,11 +215,8 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 		}
 	}
 
-	for i, ep := range changes.UpdateOld {
-		var newEP *endpoint.Endpoint
-		if i < len(changes.UpdateNew) {
-			newEP = changes.UpdateNew[i]
-		}
+	for _, ep := range changes.UpdateOld {
+		newEP := matchEndpoint(changes.UpdateNew, ep.DNSName, ep.RecordType)
 		for _, t := range ep.Targets {
 			tuple, ok := tuples[identifierKey(ep.DNSName, ep.RecordType, t)]
 			if !ok {
@@ -365,14 +362,14 @@ func (p *Provider) updateEndpoints(
 	olds []*endpoint.Endpoint,
 	news []*endpoint.Endpoint,
 ) error {
-	for _, new := range news {
-		old := matchEndpoint(olds, new.DNSName, new.RecordType)
+	for _, desired := range news {
+		old := matchEndpoint(olds, desired.DNSName, desired.RecordType)
 		if old == nil {
-			return fmt.Errorf("update %q: no matching old endpoint", new.DNSName)
+			return fmt.Errorf("update %q: no matching old endpoint", desired.DNSName)
 		}
 
 		oldTargets := stringSet(old.Targets)
-		newTargets := stringSet(new.Targets)
+		newTargets := stringSet(desired.Targets)
 
 		// Deletions: targets in old that aren't in new.
 		for t := range oldTargets {
@@ -393,15 +390,15 @@ func (p *Provider) updateEndpoints(
 		}
 
 		// Creations: targets in new that aren't in old.
-		bunnyZoneID, err := p.getZoneID(new.DNSName)
+		bunnyZoneID, err := p.getZoneID(desired.DNSName)
 		if err != nil {
 			return err
 		}
-		recordName, _, ok := extractRecordComponents(p.allZones(), new.DNSName)
+		recordName, _, ok := extractRecordComponents(p.allZones(), desired.DNSName)
 		if !ok {
-			return fmt.Errorf("update %q: cannot extract components", new.DNSName)
+			return fmt.Errorf("update %q: cannot extract components", desired.DNSName)
 		}
-		opts, _ := providerSpecificOptionsFromEndpoint(new)
+		opts, _ := providerSpecificOptionsFromEndpoint(desired)
 
 		for t := range newTargets {
 			if _, existed := oldTargets[t]; existed {
@@ -409,9 +406,9 @@ func (p *Provider) updateEndpoints(
 			}
 			record := CreateRecordRequest{
 				Name:        recordName,
-				Type:        RecordTypeFromString(new.RecordType),
+				Type:        RecordTypeFromString(desired.RecordType),
 				Value:       t,
-				TTLSeconds:  int(new.RecordTTL),
+				TTLSeconds:  int(desired.RecordTTL),
 				MonitorType: opts.MonitorType,
 				Weight:      opts.Weight,
 				Disabled:    opts.Disabled,
@@ -422,7 +419,7 @@ func (p *Provider) updateEndpoints(
 		}
 
 		// Surviving targets: only touch if metadata differs.
-		if !endpointMetadataEqual(old, new) {
+		if !endpointMetadataEqual(old, desired) {
 			for t := range newTargets {
 				if _, existed := oldTargets[t]; !existed {
 					continue
@@ -432,7 +429,7 @@ func (p *Provider) updateEndpoints(
 					continue
 				}
 				record := UpdateRecordRequest{
-					TTLSeconds:  int(new.RecordTTL),
+					TTLSeconds:  int(desired.RecordTTL),
 					Value:       t,
 					MonitorType: opts.MonitorType,
 					Weight:      opts.Weight,
@@ -546,7 +543,17 @@ func (p *Provider) fetchIdentifiers(ctx context.Context, endpoints []*endpoint.E
 				if record.Name != recordName || record.Type.String() != ep.RecordType {
 					continue
 				}
-				identifiers[identifierKey(ep.DNSName, ep.RecordType, record.Value)] = identifierTuple{
+				key := identifierKey(ep.DNSName, ep.RecordType, record.Value)
+				if existing, dup := identifiers[key]; dup {
+					slog.Warn("Duplicate Bunny record for (name, type, value) — keeping first; later operations will leave the duplicate behind",
+						slog.String("dns_name", ep.DNSName),
+						slog.String("type", ep.RecordType),
+						slog.String("value", record.Value),
+						slog.Int64("kept_record_id", existing.RecordID),
+						slog.Int64("dropped_record_id", record.ID))
+					continue
+				}
+				identifiers[key] = identifierTuple{
 					ZoneID:   zone.ID,
 					RecordID: record.ID,
 				}
