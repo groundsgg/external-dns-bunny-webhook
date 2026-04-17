@@ -256,6 +256,27 @@ func (c *BunnyClient) createRequestWithBody(ctx context.Context, method string, 
 	return req, nil
 }
 
+// redactAuthHeaders returns a copy of h with known auth header values
+// replaced by "[REDACTED]". The input is not mutated. Used before logging
+// response headers so a misbehaving upstream that echoes credentials does
+// not write them to logs.
+func redactAuthHeaders(h http.Header) http.Header {
+	const redacted = "[REDACTED]"
+	auth := map[string]bool{
+		http.CanonicalHeaderKey("AccessKey"):     true,
+		http.CanonicalHeaderKey("Authorization"): true,
+	}
+	out := make(http.Header, len(h))
+	for k, v := range h {
+		if auth[http.CanonicalHeaderKey(k)] {
+			out[k] = []string{redacted}
+			continue
+		}
+		out[k] = append([]string(nil), v...)
+	}
+	return out
+}
+
 func handleUnexpectedResponse(errBuilder oops.OopsErrorBuilder, resp *http.Response) error {
 	var errBody map[string]any
 
@@ -272,7 +293,7 @@ func handleUnexpectedResponse(errBuilder oops.OopsErrorBuilder, resp *http.Respo
 		slog.Group("res",
 			slog.String("status", resp.Status),
 			slog.Int("status_code", resp.StatusCode),
-			slog.Any("headers", resp.Header),
+			slog.Any("headers", redactAuthHeaders(resp.Header)),
 			slog.Any("body", errBody),
 		),
 	)
