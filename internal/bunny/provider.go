@@ -108,17 +108,16 @@ func (p *Provider) Records(ctx context.Context) ([]*endpoint.Endpoint, error) {
 }
 
 func (p *Provider) ApplyChanges(ctx context.Context, changes *plan.Changes) error {
+	if changes == nil || !changes.HasChanges() {
+		slog.Debug("Skipping request to apply changes because no changes are present")
+		return nil
+	}
+
 	errs := oops.In("Provider").
 		With("creates", len(changes.Create)).
 		With("deletes", len(changes.Delete)).
 		With("updates", len(changes.UpdateNew)).
 		Span("ApplyChanges")
-
-	if changes == nil || !changes.HasChanges() {
-		slog.Debug("Skipping request to apply changes because no changes are present")
-
-		return nil
-	}
 
 	// If we are in dry-run mode, we can skip the creation of endpoints and
 	// only log the changes that would have been made.
@@ -172,16 +171,16 @@ func (p *Provider) ApplyChanges(ctx context.Context, changes *plan.Changes) erro
 }
 
 func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes) error {
+	if changes == nil || !changes.HasChanges() {
+		slog.Debug("DRY RUN: Skipping request to apply changes because no changes are present")
+		return nil
+	}
+
 	errs := oops.In("Provider").
 		With("creates", len(changes.Create)).
 		With("deletes", len(changes.Delete)).
 		With("updates", len(changes.UpdateNew)).
 		Span("applyChangesDryRun")
-
-	if changes == nil || !changes.HasChanges() {
-		slog.Debug("DRY RUN: Skipping request to apply changes because no changes are present")
-		return nil
-	}
 
 	for _, ep := range changes.Create {
 		slog.InfoContext(ctx, "DRY RUN: Create record",
