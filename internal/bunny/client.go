@@ -108,6 +108,7 @@ type CreateRecordRequest struct {
 	MonitorType          MonitorType      `json:"MonitorType"`
 	Weight               int              `json:"Weight"`
 	Disabled             bool             `json:"Disabled"`
+	Comment              string           `json:"Comment,omitempty"`
 	SmartRoutingType     SmartRoutingType `json:"SmartRoutingType,omitempty"`
 	LatencyZone          string           `json:"LatencyZone,omitempty"`
 	GeolocationLatitude  *float64         `json:"GeolocationLatitude,omitempty"`
@@ -185,6 +186,7 @@ type UpdateRecordRequest struct {
 	MonitorType          MonitorType      `json:"MonitorType"`
 	Weight               int              `json:"Weight"`
 	Disabled             bool             `json:"Disabled"`
+	Comment              string           `json:"Comment,omitempty"`
 	SmartRoutingType     SmartRoutingType `json:"SmartRoutingType,omitempty"`
 	LatencyZone          string           `json:"LatencyZone,omitempty"`
 	GeolocationLatitude  *float64         `json:"GeolocationLatitude,omitempty"`
