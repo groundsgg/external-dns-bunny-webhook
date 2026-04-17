@@ -2,6 +2,7 @@ package bunny
 
 import (
 	"context"
+	"sort"
 	"testing"
 
 	"github.com/puzpuzpuz/xsync/v3"
@@ -23,11 +24,14 @@ func newTestProvider(t *testing.T, mc *mockClient) *Provider {
 }
 
 func TestIdentifierKey(t *testing.T) {
-	if identifierKey("api.example.com", "A") != "api.example.com|A" {
+	if identifierKey("api.example.com", "A", "1.1.1.1") != "api.example.com|A|1.1.1.1" {
 		t.Errorf("unexpected key shape")
 	}
-	if identifierKey("api.example.com", "A") == identifierKey("api.example.com", "AAAA") {
+	if identifierKey("api.example.com", "A", "1.1.1.1") == identifierKey("api.example.com", "AAAA", "1.1.1.1") {
 		t.Errorf("different types should produce different keys")
+	}
+	if identifierKey("api.example.com", "A", "1.1.1.1") == identifierKey("api.example.com", "A", "2.2.2.2") {
+		t.Errorf("different values should produce different keys")
 	}
 }
 
@@ -85,5 +89,131 @@ func TestExtractRecordComponents(t *testing.T) {
 					tc.zones, tc.dns, gotName, gotZone, gotOK, tc.wantName, tc.wantZone, tc.wantOK)
 			}
 		})
+	}
+}
+
+func newPopulatedProvider(t *testing.T, mc *mockClient, zones ...*Zone) *Provider {
+	t.Helper()
+	p := newTestProvider(t, mc)
+	for _, z := range zones {
+		p.cacheZone(z)
+	}
+	return p
+}
+
+func TestApplyChanges_CreatesOneRecordPerTarget(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com"}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	changes := &plan.Changes{
+		Create: []*endpoint.Endpoint{{
+			DNSName:    "api.example.com",
+			RecordType: "A",
+			RecordTTL:  300,
+			Targets:    endpoint.Targets{"1.1.1.1", "2.2.2.2"},
+		}},
+	}
+
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+	if got := mc.CountByMethod("CreateRecord"); got != 2 {
+		t.Errorf("CreateRecord calls: got %d want 2", got)
+	}
+
+	values := []string{}
+	for _, c := range mc.Calls() {
+		if c.method != "CreateRecord" {
+			continue
+		}
+		values = append(values, c.args.(CreateRecordRequest).Value)
+	}
+	sort.Strings(values)
+	if values[0] != "1.1.1.1" || values[1] != "2.2.2.2" {
+		t.Errorf("created values: got %v", values)
+	}
+}
+
+func TestApplyChanges_DiffsTargetsOnUpdate(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
+		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100},
+		{ID: 2, Name: "api", Type: RecordTypeA, Value: "2.2.2.2", TTLSeconds: 300, Weight: 100},
+	}}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	old := &endpoint.Endpoint{
+		DNSName: "api.example.com", RecordType: "A", RecordTTL: 300,
+		Targets: endpoint.Targets{"1.1.1.1", "2.2.2.2"},
+	}
+	new := &endpoint.Endpoint{
+		DNSName: "api.example.com", RecordType: "A", RecordTTL: 300,
+		Targets: endpoint.Targets{"1.1.1.1", "3.3.3.3"},
+	}
+	changes := &plan.Changes{UpdateOld: []*endpoint.Endpoint{old}, UpdateNew: []*endpoint.Endpoint{new}}
+
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+
+	if got := mc.CountByMethod("DeleteRecord"); got != 1 {
+		t.Errorf("DeleteRecord calls: got %d want 1 (the 2.2.2.2 record)", got)
+	}
+	if got := mc.CountByMethod("CreateRecord"); got != 1 {
+		t.Errorf("CreateRecord calls: got %d want 1 (the new 3.3.3.3 record)", got)
+	}
+	if got := mc.CountByMethod("UpdateRecord"); got != 0 {
+		t.Errorf("UpdateRecord calls: got %d want 0 (unchanged 1.1.1.1)", got)
+	}
+}
+
+func TestApplyChanges_UpdateMetadataTouchesEverySurvivingRecord(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
+		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100},
+		{ID: 2, Name: "api", Type: RecordTypeA, Value: "2.2.2.2", TTLSeconds: 300, Weight: 100},
+	}}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	old := &endpoint.Endpoint{
+		DNSName: "api.example.com", RecordType: "A", RecordTTL: 300,
+		Targets: endpoint.Targets{"1.1.1.1", "2.2.2.2"},
+	}
+	new := &endpoint.Endpoint{
+		DNSName: "api.example.com", RecordType: "A", RecordTTL: 600,
+		Targets: endpoint.Targets{"1.1.1.1", "2.2.2.2"},
+	}
+	changes := &plan.Changes{UpdateOld: []*endpoint.Endpoint{old}, UpdateNew: []*endpoint.Endpoint{new}}
+
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+
+	if got := mc.CountByMethod("UpdateRecord"); got != 2 {
+		t.Errorf("UpdateRecord calls: got %d want 2 (TTL changed for both surviving)", got)
+	}
+}
+
+func TestApplyChanges_DeletesEveryTarget(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
+		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100},
+		{ID: 2, Name: "api", Type: RecordTypeA, Value: "2.2.2.2", TTLSeconds: 300, Weight: 100},
+	}}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	changes := &plan.Changes{
+		Delete: []*endpoint.Endpoint{{
+			DNSName: "api.example.com", RecordType: "A", RecordTTL: 300,
+			Targets: endpoint.Targets{"1.1.1.1", "2.2.2.2"},
+		}},
+	}
+
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+	if got := mc.CountByMethod("DeleteRecord"); got != 2 {
+		t.Errorf("DeleteRecord calls: got %d want 2", got)
 	}
 }
