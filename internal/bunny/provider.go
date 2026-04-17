@@ -291,7 +291,7 @@ func (p *Provider) GetDomainFilter() endpoint.DomainFilterInterface {
 func (p *Provider) getZoneID(dnsName string) (int64, error) {
 	errs := oops.In("Provider").
 		Span("getZoneID").
-		With("dnsName", dnsName)
+		With("dns_name", dnsName)
 
 	_, domainName, ok := extractRecordComponents(p.allZones(), dnsName)
 	if !ok {
