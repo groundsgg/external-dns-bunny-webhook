@@ -357,3 +357,99 @@ func TestApplyChanges_CreatesLatencyRecord(t *testing.T) {
 		t.Errorf("LatencyZone: got %q want DE", req.LatencyZone)
 	}
 }
+
+func TestMatchEndpoint_RespectsSetIdentifier(t *testing.T) {
+	de := &endpoint.Endpoint{DNSName: "api.example.com", RecordType: "A", SetIdentifier: "latency:DE"}
+	us := &endpoint.Endpoint{DNSName: "api.example.com", RecordType: "A", SetIdentifier: "latency:US"}
+	eps := []*endpoint.Endpoint{de, us}
+
+	got := matchEndpoint(eps, "api.example.com", "A", "latency:US")
+	if got != us {
+		t.Errorf("matchEndpoint returned the wrong endpoint: got %v want %v", got, us)
+	}
+	got = matchEndpoint(eps, "api.example.com", "A", "latency:FR")
+	if got != nil {
+		t.Errorf("matchEndpoint with no matching SetIdentifier should return nil, got %v", got)
+	}
+}
+
+func TestApplyChanges_SmartOnCNAMEDegradesToNone(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com"}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	ep := &endpoint.Endpoint{
+		DNSName:    "www.example.com",
+		RecordType: "CNAME",
+		RecordTTL:  300,
+		Targets:    endpoint.Targets{"api.example.com"},
+	}
+	ep.WithProviderSpecific(providerSpecificSmartType, "latency")
+	ep.WithProviderSpecific(providerSpecificSmartLatencyZone, "DE")
+
+	changes := &plan.Changes{Create: []*endpoint.Endpoint{ep}}
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges should degrade gracefully, got %v", err)
+	}
+
+	var req CreateRecordRequest
+	for _, c := range mc.Calls() {
+		if c.method == "CreateRecord" {
+			req = c.args.(CreateRecordRequest)
+			break
+		}
+	}
+	if req.SmartRoutingType != SmartRoutingNone {
+		t.Errorf("SmartRoutingType on CNAME should degrade to None, got %v", req.SmartRoutingType)
+	}
+	if req.LatencyZone != "" {
+		t.Errorf("LatencyZone on CNAME should be cleared, got %q", req.LatencyZone)
+	}
+}
+
+func TestApplyChanges_UpdateSmartRecord(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
+		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100, SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+	}}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	old := &endpoint.Endpoint{
+		DNSName: "api.example.com", RecordType: "A", RecordTTL: 300,
+		SetIdentifier: "latency:DE",
+		Targets:       endpoint.Targets{"1.1.1.1"},
+	}
+	old.WithProviderSpecific(providerSpecificSmartType, "latency")
+	old.WithProviderSpecific(providerSpecificSmartLatencyZone, "DE")
+
+	new := &endpoint.Endpoint{
+		DNSName: "api.example.com", RecordType: "A", RecordTTL: 600,
+		SetIdentifier: "latency:DE",
+		Targets:       endpoint.Targets{"1.1.1.1"},
+	}
+	new.WithProviderSpecific(providerSpecificSmartType, "latency")
+	new.WithProviderSpecific(providerSpecificSmartLatencyZone, "DE")
+
+	changes := &plan.Changes{UpdateOld: []*endpoint.Endpoint{old}, UpdateNew: []*endpoint.Endpoint{new}}
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+
+	if got := mc.CountByMethod("UpdateRecord"); got != 1 {
+		t.Fatalf("expected 1 UpdateRecord (TTL changed), got %d", got)
+	}
+
+	var req UpdateRecordRequest
+	for _, c := range mc.Calls() {
+		if c.method == "UpdateRecord" {
+			req = c.args.(UpdateRecordRequest)
+			break
+		}
+	}
+	if req.SmartRoutingType != SmartRoutingLatency {
+		t.Errorf("UpdateRecordRequest.SmartRoutingType: got %v want Latency", req.SmartRoutingType)
+	}
+	if req.LatencyZone != "DE" {
+		t.Errorf("UpdateRecordRequest.LatencyZone: got %q want DE", req.LatencyZone)
+	}
+}

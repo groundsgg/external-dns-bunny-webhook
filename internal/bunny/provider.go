@@ -20,6 +20,26 @@ var (
 	_ provider.Provider = (*Provider)(nil)
 )
 
+// clearSmartIfUnsupported zeroes the smart-routing fields on opts and logs a
+// warning when smart routing is requested on a non-A/AAAA record type. Bunny
+// rejects such requests with a 4xx, so we degrade gracefully rather than
+// breaking reconcile.
+func clearSmartIfUnsupported(opts *providerSpecificOptions, recType RecordType, dnsName, recordType string) {
+	if opts.SmartType == SmartRoutingNone {
+		return
+	}
+	if recType == RecordTypeA || recType == RecordTypeAAAA {
+		return
+	}
+	slog.Warn("smart-type is only supported on A/AAAA records — falling back to none",
+		slog.String("dns_name", dnsName),
+		slog.String("type", recordType))
+	opts.SmartType = SmartRoutingNone
+	opts.LatencyZone = ""
+	opts.GeoLat = nil
+	opts.GeoLong = nil
+}
+
 const (
 	providerValueZoneId   = "BunnyZoneID"
 	providerValueRecordId = "BunnyRecordID"
@@ -215,7 +235,7 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 	}
 
 	for _, ep := range changes.UpdateOld {
-		newEP := matchEndpoint(changes.UpdateNew, ep.DNSName, ep.RecordType)
+		newEP := matchEndpoint(changes.UpdateNew, ep.DNSName, ep.RecordType, ep.SetIdentifier)
 		for _, t := range ep.Targets {
 			tuple, ok := tuples[identifierKey(ep.DNSName, ep.RecordType, t)]
 			if !ok {
@@ -330,6 +350,7 @@ func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endp
 				slog.String("type", create.RecordType))
 			continue
 		}
+		clearSmartIfUnsupported(&opts, recType, create.DNSName, create.RecordType)
 		for _, target := range create.Targets {
 			record := CreateRecordRequest{
 				Name:                 recordName,
@@ -375,7 +396,7 @@ func (p *Provider) updateEndpoints(
 	news []*endpoint.Endpoint,
 ) error {
 	for _, desired := range news {
-		old := matchEndpoint(olds, desired.DNSName, desired.RecordType)
+		old := matchEndpoint(olds, desired.DNSName, desired.RecordType, desired.SetIdentifier)
 		if old == nil {
 			return fmt.Errorf("update %q: no matching old endpoint", desired.DNSName)
 		}
@@ -412,6 +433,12 @@ func (p *Provider) updateEndpoints(
 		}
 		opts := providerSpecificOptionsFromEndpoint(desired)
 
+		// Apply the same guard once per endpoint so the surviving-target
+		// UpdateRecordRequest path also benefits.
+		if recType, ok := RecordTypeFromString(desired.RecordType); ok {
+			clearSmartIfUnsupported(&opts, recType, desired.DNSName, desired.RecordType)
+		}
+
 		for t := range newTargets {
 			if _, existed := oldTargets[t]; existed {
 				continue
@@ -423,6 +450,7 @@ func (p *Provider) updateEndpoints(
 					slog.String("type", desired.RecordType))
 				continue
 			}
+			clearSmartIfUnsupported(&opts, recType, desired.DNSName, desired.RecordType)
 			record := CreateRecordRequest{
 				Name:                 recordName,
 				Type:                 recType,
@@ -471,9 +499,9 @@ func (p *Provider) updateEndpoints(
 	return nil
 }
 
-func matchEndpoint(eps []*endpoint.Endpoint, dnsName, recordType string) *endpoint.Endpoint {
+func matchEndpoint(eps []*endpoint.Endpoint, dnsName, recordType, setIdentifier string) *endpoint.Endpoint {
 	for _, ep := range eps {
-		if ep.DNSName == dnsName && ep.RecordType == recordType {
+		if ep.DNSName == dnsName && ep.RecordType == recordType && ep.SetIdentifier == setIdentifier {
 			return ep
 		}
 	}
