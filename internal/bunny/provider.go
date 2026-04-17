@@ -581,18 +581,35 @@ func (p *Provider) fetchZones(ctx context.Context) ([]*Zone, error) {
 	return zones, nil
 }
 
-// extractRecordComponents extracts the record name and zone from a given DNS name
-// by matching the DNS name with the list of available zones. If a match cannot be
-// found, the function returns false as the third argument. When a match is found,
-// the function returns the record name, zone, and true as the third argument.
+// extractRecordComponents extracts the record name and zone from a given DNS
+// name by matching the DNS name with the list of available zones. It accepts
+// either an exact match (apex record, returns "" as the record name) or a
+// subdomain (dnsName == record + "." + zone). When multiple zones match
+// (overlapping zones like "example.com" and "b.example.com"), the longest
+// zone wins so the most specific record name is returned.
 func extractRecordComponents(zones []string, dnsName string) (string, string, bool) {
+	bestZone := ""
 	for _, zone := range zones {
-		if strings.HasSuffix(dnsName, zone) {
-			return dnsName[:len(dnsName)-len(zone)-1], zone, true
+		if dnsName == zone {
+			if len(zone) > len(bestZone) {
+				bestZone = zone
+			}
+			continue
+		}
+		if strings.HasSuffix(dnsName, "."+zone) {
+			if len(zone) > len(bestZone) {
+				bestZone = zone
+			}
 		}
 	}
 
-	return "", "", false
+	if bestZone == "" {
+		return "", "", false
+	}
+	if dnsName == bestZone {
+		return "", bestZone, true
+	}
+	return dnsName[:len(dnsName)-len(bestZone)-1], bestZone, true
 }
 
 func getDomainFilter(options Options) endpoint.DomainFilterInterface {

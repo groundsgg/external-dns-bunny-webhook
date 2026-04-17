@@ -58,3 +58,32 @@ func TestApplyChanges_NilOrEmpty(t *testing.T) {
 		t.Fatalf("dry-run empty changes should be a no-op, got %v", err)
 	}
 }
+
+func TestExtractRecordComponents(t *testing.T) {
+	cases := []struct {
+		name     string
+		zones    []string
+		dns      string
+		wantName string
+		wantZone string
+		wantOK   bool
+	}{
+		{"apex", []string{"example.com"}, "example.com", "", "example.com", true},
+		{"subdomain", []string{"example.com"}, "api.example.com", "api", "example.com", true},
+		{"deep subdomain", []string{"example.com"}, "a.b.c.example.com", "a.b.c", "example.com", true},
+		{"suffix attack", []string{"example.com"}, "malicious-example.com", "", "", false},
+		{"longest match", []string{"example.com", "b.example.com"}, "a.b.example.com", "a", "b.example.com", true},
+		{"longest match reversed", []string{"b.example.com", "example.com"}, "a.b.example.com", "a", "b.example.com", true},
+		{"no match", []string{"example.com"}, "foo.bar", "", "", false},
+		{"empty zones", nil, "anything.com", "", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotName, gotZone, gotOK := extractRecordComponents(tc.zones, tc.dns)
+			if gotName != tc.wantName || gotZone != tc.wantZone || gotOK != tc.wantOK {
+				t.Errorf("extractRecordComponents(%v, %q) = (%q,%q,%v) want (%q,%q,%v)",
+					tc.zones, tc.dns, gotName, gotZone, gotOK, tc.wantName, tc.wantZone, tc.wantOK)
+			}
+		})
+	}
+}
