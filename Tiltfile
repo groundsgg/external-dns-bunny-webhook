@@ -5,6 +5,9 @@ load('ext://helm_resource', 'helm_repo', 'helm_resource')
 load('ext://dotenv', 'dotenv')
 dotenv()
 
+if not os.getenv('BUNNY_API_KEY'):
+    fail('BUNNY_API_KEY must be set (in environment or .env)')
+
 ko_build(
   'external-dns-bunny-webhook-image',
   './cmd/webhook',
