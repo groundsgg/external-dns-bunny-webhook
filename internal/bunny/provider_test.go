@@ -284,3 +284,76 @@ func TestAdjustEndpoints_PreservesIncomingLabels(t *testing.T) {
 		t.Fatalf("incoming labels lost: %v", out)
 	}
 }
+
+func TestApplyChanges_CreatesSmartRecord(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com"}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	ep := &endpoint.Endpoint{
+		DNSName:    "api.example.com",
+		RecordType: "A",
+		RecordTTL:  300,
+		Targets:    endpoint.Targets{"1.1.1.1"},
+	}
+	ep.WithProviderSpecific(providerSpecificSmartType, "geo")
+	ep.WithProviderSpecific(providerSpecificSmartGeoLat, "50.11")
+	ep.WithProviderSpecific(providerSpecificSmartGeoLong, "8.68")
+
+	changes := &plan.Changes{Create: []*endpoint.Endpoint{ep}}
+
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+
+	var req CreateRecordRequest
+	for _, c := range mc.Calls() {
+		if c.method == "CreateRecord" {
+			req = c.args.(CreateRecordRequest)
+			break
+		}
+	}
+	if req.SmartRoutingType != SmartRoutingGeolocation {
+		t.Errorf("SmartRoutingType: got %v want Geolocation", req.SmartRoutingType)
+	}
+	if req.GeolocationLatitude == nil || *req.GeolocationLatitude != 50.11 {
+		t.Errorf("GeolocationLatitude: got %v", req.GeolocationLatitude)
+	}
+	if req.GeolocationLongitude == nil || *req.GeolocationLongitude != 8.68 {
+		t.Errorf("GeolocationLongitude: got %v", req.GeolocationLongitude)
+	}
+}
+
+func TestApplyChanges_CreatesLatencyRecord(t *testing.T) {
+	zone := &Zone{ID: 42, Domain: "example.com"}
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{zone}}}
+	p := newPopulatedProvider(t, mc, zone)
+
+	ep := &endpoint.Endpoint{
+		DNSName:    "api.example.com",
+		RecordType: "A",
+		RecordTTL:  300,
+		Targets:    endpoint.Targets{"1.1.1.1"},
+	}
+	ep.WithProviderSpecific(providerSpecificSmartType, "latency")
+	ep.WithProviderSpecific(providerSpecificSmartLatencyZone, "DE")
+
+	changes := &plan.Changes{Create: []*endpoint.Endpoint{ep}}
+	if err := p.ApplyChanges(context.Background(), changes); err != nil {
+		t.Fatalf("ApplyChanges: %v", err)
+	}
+
+	var req CreateRecordRequest
+	for _, c := range mc.Calls() {
+		if c.method == "CreateRecord" {
+			req = c.args.(CreateRecordRequest)
+			break
+		}
+	}
+	if req.SmartRoutingType != SmartRoutingLatency {
+		t.Errorf("SmartRoutingType: got %v want Latency", req.SmartRoutingType)
+	}
+	if req.LatencyZone != "DE" {
+		t.Errorf("LatencyZone: got %q want DE", req.LatencyZone)
+	}
+}

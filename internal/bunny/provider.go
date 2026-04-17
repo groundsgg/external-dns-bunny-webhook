@@ -332,13 +332,17 @@ func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endp
 		}
 		for _, target := range create.Targets {
 			record := CreateRecordRequest{
-				Name:        recordName,
-				Type:        recType,
-				Value:       target,
-				TTLSeconds:  int(create.RecordTTL),
-				MonitorType: opts.MonitorType,
-				Weight:      opts.Weight,
-				Disabled:    opts.Disabled,
+				Name:                 recordName,
+				Type:                 recType,
+				Value:                target,
+				TTLSeconds:           int(create.RecordTTL),
+				MonitorType:          opts.MonitorType,
+				Weight:               opts.Weight,
+				Disabled:             opts.Disabled,
+				SmartRoutingType:     opts.SmartType,
+				LatencyZone:          opts.LatencyZone,
+				GeolocationLatitude:  opts.GeoLat,
+				GeolocationLongitude: opts.GeoLong,
 			}
 
 			created, err := p.client.CreateRecord(ctx, strconv.FormatInt(bunnyZoneID, 10), record)
@@ -420,13 +424,17 @@ func (p *Provider) updateEndpoints(
 				continue
 			}
 			record := CreateRecordRequest{
-				Name:        recordName,
-				Type:        recType,
-				Value:       t,
-				TTLSeconds:  int(desired.RecordTTL),
-				MonitorType: opts.MonitorType,
-				Weight:      opts.Weight,
-				Disabled:    opts.Disabled,
+				Name:                 recordName,
+				Type:                 recType,
+				Value:                t,
+				TTLSeconds:           int(desired.RecordTTL),
+				MonitorType:          opts.MonitorType,
+				Weight:               opts.Weight,
+				Disabled:             opts.Disabled,
+				SmartRoutingType:     opts.SmartType,
+				LatencyZone:          opts.LatencyZone,
+				GeolocationLatitude:  opts.GeoLat,
+				GeolocationLongitude: opts.GeoLong,
 			}
 			if _, err := p.client.CreateRecord(ctx, strconv.FormatInt(bunnyZoneID, 10), record); err != nil {
 				return err
@@ -444,11 +452,15 @@ func (p *Provider) updateEndpoints(
 					continue
 				}
 				record := UpdateRecordRequest{
-					TTLSeconds:  int(desired.RecordTTL),
-					Value:       t,
-					MonitorType: opts.MonitorType,
-					Weight:      opts.Weight,
-					Disabled:    opts.Disabled,
+					TTLSeconds:           int(desired.RecordTTL),
+					Value:                t,
+					MonitorType:          opts.MonitorType,
+					Weight:               opts.Weight,
+					Disabled:             opts.Disabled,
+					SmartRoutingType:     opts.SmartType,
+					LatencyZone:          opts.LatencyZone,
+					GeolocationLatitude:  opts.GeoLat,
+					GeolocationLongitude: opts.GeoLong,
 				}
 				if err := p.client.UpdateRecord(ctx, tuple.ZoneID, tuple.RecordID, record); err != nil {
 					return err
