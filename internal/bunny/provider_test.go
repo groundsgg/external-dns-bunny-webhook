@@ -235,7 +235,11 @@ func TestAdjustEndpoints_EmptyZoneCacheSkipsAPI(t *testing.T) {
 	}
 }
 
-func TestAdjustEndpoints_CopiesLabelsFromExisting(t *testing.T) {
+// TestAdjustEndpoints_PreservesIncomingLabels covers the pass-through case.
+// The label-copy path inside AdjustEndpoints is currently dead code in tests
+// because aggregateRecords does not populate endpoint.Labels — when that
+// changes, add a separate test exercising the copy path explicitly.
+func TestAdjustEndpoints_PreservesIncomingLabels(t *testing.T) {
 	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
 		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100},
 	}}
