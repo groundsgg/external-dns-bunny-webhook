@@ -2,6 +2,7 @@ package bunny
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -239,6 +240,29 @@ func TestAdjustEndpoints_EmptyZoneCacheSkipsAPI(t *testing.T) {
 // The label-copy path inside AdjustEndpoints is currently dead code in tests
 // because aggregateRecords does not populate endpoint.Labels — when that
 // changes, add a separate test exercising the copy path explicitly.
+func TestNewProvider_FailsWhenZoneFetchFails(t *testing.T) {
+	mc := &mockClient{listErr: fmt.Errorf("forced API failure")}
+	_, err := NewProvider(mc, Options{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestNewProvider_SucceedsWhenZoneFetchOK(t *testing.T) {
+	mc := &mockClient{listResp: &ListZonesResponse{Items: []*Zone{{ID: 1, Domain: "example.com"}}}}
+	p, err := NewProvider(mc, Options{})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	if p == nil {
+		t.Fatal("expected provider, got nil")
+	}
+	zones := p.allZones()
+	if len(zones) != 1 || zones[0] != "example.com" {
+		t.Fatalf("zone cache: %v", zones)
+	}
+}
+
 func TestAdjustEndpoints_PreservesIncomingLabels(t *testing.T) {
 	zone := &Zone{ID: 42, Domain: "example.com", Records: []*Record{
 		{ID: 1, Name: "api", Type: RecordTypeA, Value: "1.1.1.1", TTLSeconds: 300, Weight: 100},

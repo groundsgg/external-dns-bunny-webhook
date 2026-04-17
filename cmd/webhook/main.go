@@ -44,15 +44,24 @@ func main() {
 	health := &health.Server{Options: opts.Health}
 	sup.Add(health)
 
+	bunnyProvider, err := bunny.NewProvider(
+		bunny.NewDNSClient(cleanhttp.DefaultPooledClient(), opts.Bunny.APIKey),
+		opts.Bunny,
+	)
+	if err != nil {
+		slog.Error("Failed to initialize Bunny provider.", slog.Any("error", err))
+		os.Exit(1)
+	}
+
 	sup.Add(&webhook.Server{
 		Options:     opts.Webhook,
-		Provider:    bunny.NewProvider(bunny.NewDNSClient(cleanhttp.DefaultPooledClient(), opts.Bunny.APIKey), opts.Bunny),
+		Provider:    bunnyProvider,
 		HealthyFunc: health.SetHealthy,
 	})
 
 	slog.InfoContext(ctx, "Starting external-dns-bunny-webhook")
 
-	err := sup.Serve(ctx)
+	err = sup.Serve(ctx)
 	switch {
 	case errors.Is(err, context.Canceled):
 		slog.Info("Shutdown complete.")

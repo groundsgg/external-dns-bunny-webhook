@@ -41,27 +41,25 @@ type Provider struct {
 	zoneMap *xsync.MapOf[string, int64]
 }
 
-func NewProvider(client Client, options Options) *Provider {
-	provider := &Provider{
+// NewProvider builds a Provider and primes the zone cache. Returns an error
+// if the initial zone fetch fails — without a populated cache we cannot
+// extract record names from DNS names, so the webhook would silently fail
+// every reconcile if it came up "healthy" with an empty cache.
+func NewProvider(client Client, options Options) (*Provider, error) {
+	p := &Provider{
 		Options: options,
 		client:  client,
 		filter:  getDomainFilter(options),
 		zoneMap: xsync.NewMapOf[string, int64](),
 	}
 
-	// On startup, fetch zones so that all available zones are cached. This
-	// is necessary to avoid making a call to the API during creates as we
-	// need the zone ID to create a record. In addition, this data is used
-	// to accurately exctract recordName from the full dnsName. Without it,
-	// we could not accurately handle all the expected TLDs without maintaing
-	// an internal list.
-	_, err := provider.fetchZones(context.Background())
-	if err != nil {
-		slog.Error("Failed to fetch zones on startup.",
-			slog.Any("error", err))
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	return provider
+	if _, err := p.fetchZones(ctx); err != nil {
+		return nil, fmt.Errorf("startup zone fetch: %w", err)
+	}
+	return p, nil
 }
 
 func (p *Provider) allZones() []string {
