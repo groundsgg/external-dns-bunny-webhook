@@ -269,6 +269,16 @@ func (p *Provider) applyChangesDryRun(ctx context.Context, changes *plan.Changes
 func (p *Provider) AdjustEndpoints(incoming []*endpoint.Endpoint) ([]*endpoint.Endpoint, error) {
 	errs := oops.In("Provider").Span("AdjustEndpoints")
 
+	// Canonicalize each incoming endpoint's ProviderSpecific keys so they
+	// match what Records() would emit. This removes the "same meaning,
+	// different string" drift class: users writing "50.00" vs the webhook's
+	// canonical "50", or users setting weight=100 explicitly while the
+	// webhook omits default values. Done unconditionally (no zone fetch
+	// required) so the first reconcile also benefits.
+	for _, ep := range incoming {
+		canonicalizeProviderSpecific(ep)
+	}
+
 	if len(p.allZones()) == 0 {
 		return incoming, nil
 	}
@@ -298,6 +308,31 @@ func (p *Provider) AdjustEndpoints(incoming []*endpoint.Endpoint) ([]*endpoint.E
 		}
 	}
 	return incoming, nil
+}
+
+// canonicalizeProviderSpecific parses the endpoint's ProviderSpecific keys,
+// deletes any of this webhook's owned keys, and re-emits them in canonical
+// form via ApplyToEndpoint. Idempotent: calling twice produces the same
+// result.
+func canonicalizeProviderSpecific(ep *endpoint.Endpoint) {
+	opts := providerSpecificOptionsFromEndpoint(ep)
+	for _, key := range ownedProviderSpecificKeys {
+		ep.DeleteProviderSpecificProperty(key)
+	}
+	opts.ApplyToEndpoint(ep)
+}
+
+// ownedProviderSpecificKeys enumerates the ProviderSpecific keys this
+// webhook produces. Kept in sync with annotations.go's constants so
+// canonicalization deletes exactly what ApplyToEndpoint can re-emit.
+var ownedProviderSpecificKeys = []string{
+	providerSpecificDisabled,
+	providerSpecificMonitorType,
+	providerSpecificWeight,
+	providerSpecificSmartType,
+	providerSpecificSmartLatencyZone,
+	providerSpecificSmartGeoLat,
+	providerSpecificSmartGeoLong,
 }
 
 // GetDomainFilter returns the domain filter used by this provider.
