@@ -73,7 +73,7 @@ func (c *BunnyClient) ListZones(ctx context.Context, r ListZonesRequest) (*ListZ
 
 	slog.DebugContext(ctx, "Fetching Zones from Bunny.net API", slog.Group("req",
 		slog.Int("page", r.Page),
-		slog.Int("perPage", r.PerPage),
+		slog.Int("per_page", r.PerPage),
 		slog.String("search", r.Domain)))
 
 	req, err := c.createRequest(ctx, http.MethodGet, "/dnszone", qp)
@@ -152,8 +152,8 @@ func (c *BunnyClient) CreateRecord(ctx context.Context, zoneID string, r CreateR
 
 func (c *BunnyClient) DeleteRecord(ctx context.Context, zoneID int64, recordID int64) error {
 	errs := oops.In("BunnyClient").
-		With("zoneID", zoneID).
-		With("recordID", recordID).
+		With("zone_id", zoneID).
+		With("record_id", recordID).
 		Span("DeleteRecord")
 
 	req, err := c.createRequestWithBody(ctx, http.MethodDelete, fmt.Sprintf("/dnszone/%d/records/%d", zoneID, recordID), nil)
@@ -185,13 +185,13 @@ type UpdateRecordRequest struct {
 
 func (c *BunnyClient) UpdateRecord(ctx context.Context, zoneID int64, recordID int64, r UpdateRecordRequest) error {
 	errs := oops.In("BunnyClient").
-		With("zoneID", zoneID).
-		With("recordID", recordID).
-		With("updatedTTL", r.TTLSeconds).
-		With("updatedValue", r.Value).
-		With("updatedMonitorType", r.MonitorType).
-		With("updatedWeight", r.Weight).
-		With("updatedDisabled", r.Disabled).
+		With("zone_id", zoneID).
+		With("record_id", recordID).
+		With("updated_ttl", r.TTLSeconds).
+		With("updated_value", r.Value).
+		With("updated_monitor_type", r.MonitorType).
+		With("updated_weight", r.Weight).
+		With("updated_disabled", r.Disabled).
 		Span("UpdateRecord")
 
 	req, err := c.createRequestWithBody(ctx, http.MethodPost, fmt.Sprintf("/dnszone/%d/records/%d", zoneID, recordID), r)
@@ -256,6 +256,27 @@ func (c *BunnyClient) createRequestWithBody(ctx context.Context, method string, 
 	return req, nil
 }
 
+// redactAuthHeaders returns a copy of h with known auth header values
+// replaced by "[REDACTED]". The input is not mutated. Used before logging
+// response headers so a misbehaving upstream that echoes credentials does
+// not write them to logs.
+func redactAuthHeaders(h http.Header) http.Header {
+	const redacted = "[REDACTED]"
+	auth := map[string]bool{
+		http.CanonicalHeaderKey("AccessKey"):     true,
+		http.CanonicalHeaderKey("Authorization"): true,
+	}
+	out := make(http.Header, len(h))
+	for k, v := range h {
+		if auth[http.CanonicalHeaderKey(k)] {
+			out[k] = []string{redacted}
+			continue
+		}
+		out[k] = append([]string(nil), v...)
+	}
+	return out
+}
+
 func handleUnexpectedResponse(errBuilder oops.OopsErrorBuilder, resp *http.Response) error {
 	var errBody map[string]any
 
@@ -264,15 +285,15 @@ func handleUnexpectedResponse(errBuilder oops.OopsErrorBuilder, resp *http.Respo
 
 	err := errBuilder.
 		With("status", resp.Status).
-		With("statusCode", resp.StatusCode).
+		With("status_code", resp.StatusCode).
 		Errorf("unexpected status code: %d", resp.StatusCode)
 
 	slog.Error("Received an unexpected response from Bunny.net.",
 		slog.Any("error", err),
 		slog.Group("res",
 			slog.String("status", resp.Status),
-			slog.Int("statusCode", resp.StatusCode),
-			slog.Any("headers", resp.Header),
+			slog.Int("status_code", resp.StatusCode),
+			slog.Any("headers", redactAuthHeaders(resp.Header)),
 			slog.Any("body", errBody),
 		),
 	)

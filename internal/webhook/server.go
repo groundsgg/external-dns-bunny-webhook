@@ -2,9 +2,8 @@ package webhook
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
-	"net"
 	"net/http"
 	"time"
 
@@ -31,12 +30,10 @@ type Server struct {
 
 func (s *Server) Serve(ctx context.Context) error {
 	if s.Provider == nil {
-		return fmt.Errorf("provider is required")
+		return fmt.Errorf("webhook server: provider is required")
 	}
 
-	p := api.WebhookServer{
-		Provider: s.Provider,
-	}
+	p := api.WebhookServer{Provider: s.Provider}
 
 	m := http.NewServeMux()
 	m.HandleFunc("/", p.NegotiateHandler)
@@ -50,29 +47,25 @@ func (s *Server) Serve(ctx context.Context) error {
 		WriteTimeout: s.Options.WriteTimeout,
 	}
 
-	l, err := net.Listen("tcp", s.Options.Addr())
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	shutdownErr := make(chan error, 1)
 	go func() {
 		<-ctx.Done()
-
 		s.setHealthy(false)
-
-		if err := srv.Shutdown(ctx); err != nil {
-			log.Fatal(err)
-		}
-
-		l.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		shutdownErr <- srv.Shutdown(shutdownCtx)
 	}()
 
 	s.setHealthy(true)
 
-	if err := srv.Serve(l); err != nil {
-		log.Fatal(err)
+	err := srv.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("webhook server: %w", err)
 	}
 
+	if err := <-shutdownErr; err != nil {
+		return fmt.Errorf("webhook server shutdown: %w", err)
+	}
 	return nil
 }
 
@@ -80,6 +73,5 @@ func (s *Server) setHealthy(healthy bool) {
 	if s.HealthyFunc == nil {
 		return
 	}
-
 	s.HealthyFunc(healthy)
 }

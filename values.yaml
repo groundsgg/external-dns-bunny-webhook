@@ -1,3 +1,5 @@
+# This file is for local Tilt development only — see Tiltfile.
+# For production Helm values, follow the example in README.md.
 namespace: external-dns
 policy: sync
 logLevel: debug
