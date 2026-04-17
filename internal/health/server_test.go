@@ -2,7 +2,6 @@ package health
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -122,5 +121,3 @@ func TestServer_HealthzReports503WhenUnhealthy(t *testing.T) {
 		t.Fatalf("status: got %d want 503", resp.StatusCode)
 	}
 }
-
-var _ = errors.Is
