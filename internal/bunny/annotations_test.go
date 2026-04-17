@@ -9,10 +9,7 @@ import (
 
 func TestProviderSpecificOptionsFromEndpoint_Defaults(t *testing.T) {
 	ep := &endpoint.Endpoint{}
-	opts, err := providerSpecificOptionsFromEndpoint(ep)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	opts := providerSpecificOptionsFromEndpoint(ep)
 	if opts.Weight != 100 {
 		t.Errorf("default weight: got %d want 100", opts.Weight)
 	}
@@ -41,10 +38,7 @@ func TestProviderSpecificOptionsFromEndpoint_WeightClamping(t *testing.T) {
 		t.Run(tc.in, func(t *testing.T) {
 			ep := &endpoint.Endpoint{}
 			ep.WithProviderSpecific(providerSpecificWeight, tc.in)
-			opts, err := providerSpecificOptionsFromEndpoint(ep)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			opts := providerSpecificOptionsFromEndpoint(ep)
 			if opts.Weight != tc.want {
 				t.Fatalf("weight=%q: got %d want %d", tc.in, opts.Weight, tc.want)
 			}
@@ -56,10 +50,7 @@ func TestProviderSpecificOptionsFromEndpoint_DisabledAndMonitor(t *testing.T) {
 	ep := &endpoint.Endpoint{}
 	ep.WithProviderSpecific(providerSpecificDisabled, "true")
 	ep.WithProviderSpecific(providerSpecificMonitorType, "http")
-	opts, err := providerSpecificOptionsFromEndpoint(ep)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	opts := providerSpecificOptionsFromEndpoint(ep)
 	if !opts.Disabled {
 		t.Error("disabled: got false want true")
 	}
@@ -89,7 +80,7 @@ func TestApplyToEndpoint_RoundTrip(t *testing.T) {
 	ep := &endpoint.Endpoint{}
 	src.ApplyToEndpoint(ep)
 
-	got, _ := providerSpecificOptionsFromEndpoint(ep)
+	got := providerSpecificOptionsFromEndpoint(ep)
 	if got.Disabled != src.Disabled || got.MonitorType != src.MonitorType || got.Weight != src.Weight {
 		t.Fatalf("round-trip mismatch:\nwrote %+v\nread  %+v", src, got)
 	}

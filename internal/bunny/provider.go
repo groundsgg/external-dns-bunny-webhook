@@ -321,10 +321,7 @@ func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endp
 			return errs.Errorf("failed to extract components for %q", create.DNSName)
 		}
 
-		opts, err := providerSpecificOptionsFromEndpoint(create)
-		if err != nil {
-			return errs.Wrapf(err, "failed to create record %q", create.DNSName)
-		}
+		opts := providerSpecificOptionsFromEndpoint(create)
 
 		recType, ok := RecordTypeFromString(create.RecordType)
 		if !ok {
@@ -409,7 +406,7 @@ func (p *Provider) updateEndpoints(
 		if !ok {
 			return fmt.Errorf("update %q: cannot extract components", desired.DNSName)
 		}
-		opts, _ := providerSpecificOptionsFromEndpoint(desired)
+		opts := providerSpecificOptionsFromEndpoint(desired)
 
 		for t := range newTargets {
 			if _, existed := oldTargets[t]; existed {
@@ -485,8 +482,8 @@ func endpointMetadataEqual(a, b *endpoint.Endpoint) bool {
 	if a.RecordTTL != b.RecordTTL {
 		return false
 	}
-	ao, _ := providerSpecificOptionsFromEndpoint(a)
-	bo, _ := providerSpecificOptionsFromEndpoint(b)
+	ao := providerSpecificOptionsFromEndpoint(a)
+	bo := providerSpecificOptionsFromEndpoint(b)
 	return ao == bo
 }
 

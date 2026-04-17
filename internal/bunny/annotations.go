@@ -18,7 +18,7 @@ type providerSpecificOptions struct {
 	Weight      int
 }
 
-func providerSpecificOptionsFromEndpoint(e *endpoint.Endpoint) (providerSpecificOptions, error) {
+func providerSpecificOptionsFromEndpoint(e *endpoint.Endpoint) providerSpecificOptions {
 	opts := providerSpecificOptions{}
 
 	if disabled, ok := e.GetProviderSpecificProperty(providerSpecificDisabled); ok {
@@ -53,7 +53,7 @@ func providerSpecificOptionsFromEndpoint(e *endpoint.Endpoint) (providerSpecific
 		opts.Weight = 100
 	}
 
-	return opts, nil
+	return opts
 }
 
 func providerSpecificOptionsFromRecord(r *Record) *providerSpecificOptions {
