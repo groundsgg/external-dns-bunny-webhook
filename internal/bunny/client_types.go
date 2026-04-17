@@ -87,23 +87,65 @@ func MonitorTypeFromString(s string) MonitorType {
 	}
 }
 
+// SmartRoutingType mirrors Bunny's DnsSmartRoutingType enum.
+// The integer values (0, 1, 2) match Bunny's API exactly.
+type SmartRoutingType int
+
+const (
+	SmartRoutingNone        SmartRoutingType = 0
+	SmartRoutingLatency     SmartRoutingType = 1
+	SmartRoutingGeolocation SmartRoutingType = 2
+)
+
+func (s SmartRoutingType) String() string {
+	switch s {
+	case SmartRoutingLatency:
+		return "latency"
+	case SmartRoutingGeolocation:
+		return "geo"
+	default:
+		// Out-of-range values and SmartRoutingNone both render as "none".
+		return "none"
+	}
+}
+
+// SmartRoutingTypeFromString parses a human-readable smart-routing type.
+// Returns (value, true) for recognized inputs (case-insensitive), including
+// "none" and "" which both map to SmartRoutingNone. Returns
+// (SmartRoutingNone, false) for unrecognized inputs so the caller can warn.
+func SmartRoutingTypeFromString(s string) (SmartRoutingType, bool) {
+	switch strings.ToLower(s) {
+	case "none", "":
+		return SmartRoutingNone, true
+	case "latency":
+		return SmartRoutingLatency, true
+	case "geo", "geolocation":
+		return SmartRoutingGeolocation, true
+	}
+	return SmartRoutingNone, false
+}
+
 type Record struct {
-	ID                    int64       `json:"Id"`
-	Type                  RecordType  `json:"Type"`
-	TTLSeconds            int         `json:"Ttl"`
-	Value                 string      `json:"Value"`
-	Name                  string      `json:"Name"`
-	Weight                int         `json:"Weight"`
-	Priority              int         `json:"Priority"`
-	Port                  int         `json:"Port"`
-	Flags                 int         `json:"Flags"`
-	Tag                   string      `json:"Tag"`
-	MonitorType           MonitorType `json:"MonitorType"`
-	Accelerated           bool        `json:"Accelerated"`
-	AcceleratedPullZoneID int64       `json:"AcceleratedPullZoneId"`
-	LinkName              string      `json:"LinkName"`
-	Disabled              bool        `json:"Disabled"`
-	Comment               string      `json:"Comment"`
+	ID                    int64            `json:"Id"`
+	Type                  RecordType       `json:"Type"`
+	TTLSeconds            int              `json:"Ttl"`
+	Value                 string           `json:"Value"`
+	Name                  string           `json:"Name"`
+	Weight                int              `json:"Weight"`
+	Priority              int              `json:"Priority"`
+	Port                  int              `json:"Port"`
+	Flags                 int              `json:"Flags"`
+	Tag                   string           `json:"Tag"`
+	MonitorType           MonitorType      `json:"MonitorType"`
+	Accelerated           bool             `json:"Accelerated"`
+	AcceleratedPullZoneID int64            `json:"AcceleratedPullZoneId"`
+	LinkName              string           `json:"LinkName"`
+	Disabled              bool             `json:"Disabled"`
+	Comment               string           `json:"Comment"`
+	SmartRoutingType      SmartRoutingType `json:"SmartRoutingType"`
+	LatencyZone           string           `json:"LatencyZone,omitempty"`
+	GeolocationLatitude   *float64         `json:"GeolocationLatitude,omitempty"`
+	GeolocationLongitude  *float64         `json:"GeolocationLongitude,omitempty"`
 }
 
 type Zone struct {

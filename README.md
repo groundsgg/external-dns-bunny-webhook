@@ -96,49 +96,74 @@ The weight to use for the DNS record. Valid values are between 1 and 100. This a
 default to `100` if not provided. Any value outside of the valid range will be set to the nearest valid value,
 and any non-integer value will result in the default value being used.
 
-### Additional Annotations
+### Smart DNS Records
 
-The following additional annotations are being considered for future releases:
+Smart DNS records route traffic based on latency (closest Bunny.net datacenter
+region) or explicit geographic coordinates. Smart records are supported on
+A and AAAA records.
 
-#### Smart DNS Records
+To model multiple smart records under the same hostname (e.g., one per region),
+create one Kubernetes source per record and differentiate them with
+`external-dns.alpha.kubernetes.io/set-identifier`. The webhook encodes the
+smart settings into `SetIdentifier` automatically when reading back from
+Bunny (`latency:<zone>` or `geo:<lat>,<long>`), so external-dns sees a stable
+view across reconciles.
 
-Smart DNS records are a feature of Bunny.net that allow you to create DNS records that route traffic based on
-latency or geographic location. These annotations are not yet implemented, but are planned for a future release.
-We would like to hear from you if you are interested in this feature.
+#### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-type`
 
-##### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-type`
+The type of smart routing to apply. Valid values: `none` (default), `latency`,
+`geo`. Unknown values fall back to `none` with a warning log.
 
-The type of smart DNS record to create. Valid values are `none`, `latency`, and `geo`. This annotation is optional
-and will default to `none` if not provided.
+#### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-latency-zone`
 
-##### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-latency-zone`
+Required if `smart-type=latency`. The Bunny.net zone string (typically an
+ISO country/region code like `DE`, `US`, `SG`). Missing or empty values fall
+back to non-smart with a warning log.
 
-The latency zone to use for the smart DNS record. This annotation is required if the `smart-type` is set to `latency`
-and must be a valid Bunny.net latency zone.
+#### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-geo-lat`
 
-##### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-geo-lat`
+Required if `smart-type=geo`. A latitude between -90 and 90.
 
-The latitude to use for the smart DNS record. This annotation is required if the `smart-type` is set to `geo` and
-must be a valid latitude value.
+#### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-geo-long`
 
-##### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-geo-long`
+Required if `smart-type=geo`. A longitude between -180 and 180.
 
-The longitude to use for the smart DNS record. This annotation is required if the `smart-type` is set to `geo` and
-must be a valid longitude value.
+Out-of-range or unparseable coordinates fall back to non-smart with a
+warning log.
 
-##### `external-dns.alpha.kubernetes.io/webhook-bunny-smart-geo-preset`
-
-A list of preset lat/lng for common Cloud Providers and their regions will be maintained in the future. This annotation
-will allow you to specify a preset to use for the smart DNS record. This annotation will be optional and will be mutually
-exclusive with the `geo-lat` and `geo-long` annotations.
-
-An example for this annotation might be:
+#### Example: latency-routed record across two regions
 
 ```yaml
-annotations:
-  external-dns.alpha.kubernetes.io/webhook-bunny-smart-type: "geo"
-  external-dns.alpha.kubernetes.io/webhook-bunny-smart-geo-preset: "aws:us-east-1"
+# Kubernetes Service in the EU cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-eu
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: api.example.com
+    external-dns.alpha.kubernetes.io/set-identifier: eu
+    external-dns.alpha.kubernetes.io/webhook-bunny-smart-type: latency
+    external-dns.alpha.kubernetes.io/webhook-bunny-smart-latency-zone: "DE"
+---
+# Kubernetes Service in the US cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-us
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: api.example.com
+    external-dns.alpha.kubernetes.io/set-identifier: us
+    external-dns.alpha.kubernetes.io/webhook-bunny-smart-type: latency
+    external-dns.alpha.kubernetes.io/webhook-bunny-smart-latency-zone: "US"
 ```
+
+#### Note: pre-existing dashboard records
+
+If you have smart records created by hand in the Bunny.net dashboard and you
+don't have a matching Kubernetes source annotation, external-dns will detect
+drift and try to strip the smart settings. Either add the matching annotations
+to your source, or exclude the records from external-dns management via the
+ownership TXT registry.
 
 ## Development
 

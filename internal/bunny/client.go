@@ -101,13 +101,17 @@ func (c *BunnyClient) ListZones(ctx context.Context, r ListZonesRequest) (*ListZ
 }
 
 type CreateRecordRequest struct {
-	Type        RecordType  `json:"Type"`
-	TTLSeconds  int         `json:"Ttl"`
-	Value       string      `json:"Value"`
-	Name        string      `json:"Name"`
-	MonitorType MonitorType `json:"MonitorType"`
-	Weight      int         `json:"Weight"`
-	Disabled    bool        `json:"Disabled"`
+	Type                 RecordType       `json:"Type"`
+	TTLSeconds           int              `json:"Ttl"`
+	Value                string           `json:"Value"`
+	Name                 string           `json:"Name"`
+	MonitorType          MonitorType      `json:"MonitorType"`
+	Weight               int              `json:"Weight"`
+	Disabled             bool             `json:"Disabled"`
+	SmartRoutingType     SmartRoutingType `json:"SmartRoutingType,omitempty"`
+	LatencyZone          string           `json:"LatencyZone,omitempty"`
+	GeolocationLatitude  *float64         `json:"GeolocationLatitude,omitempty"`
+	GeolocationLongitude *float64         `json:"GeolocationLongitude,omitempty"`
 }
 
 func (c *BunnyClient) CreateRecord(ctx context.Context, zoneID string, r CreateRecordRequest) (*Record, error) {
@@ -176,11 +180,15 @@ func (c *BunnyClient) DeleteRecord(ctx context.Context, zoneID int64, recordID i
 }
 
 type UpdateRecordRequest struct {
-	TTLSeconds  int         `json:"Ttl"`
-	Value       string      `json:"Value"`
-	MonitorType MonitorType `json:"MonitorType"`
-	Weight      int         `json:"Weight"`
-	Disabled    bool        `json:"Disabled"`
+	TTLSeconds           int              `json:"Ttl"`
+	Value                string           `json:"Value"`
+	MonitorType          MonitorType      `json:"MonitorType"`
+	Weight               int              `json:"Weight"`
+	Disabled             bool             `json:"Disabled"`
+	SmartRoutingType     SmartRoutingType `json:"SmartRoutingType,omitempty"`
+	LatencyZone          string           `json:"LatencyZone,omitempty"`
+	GeolocationLatitude  *float64         `json:"GeolocationLatitude,omitempty"`
+	GeolocationLongitude *float64         `json:"GeolocationLongitude,omitempty"`
 }
 
 func (c *BunnyClient) UpdateRecord(ctx context.Context, zoneID int64, recordID int64, r UpdateRecordRequest) error {

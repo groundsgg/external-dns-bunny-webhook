@@ -3,6 +3,8 @@ package bunny
 import (
 	"sort"
 	"testing"
+
+	"sigs.k8s.io/external-dns/endpoint"
 )
 
 func TestAggregateRecords_GroupsMultipleTargets(t *testing.T) {
@@ -52,5 +54,97 @@ func TestAggregateRecords_HandlesApex(t *testing.T) {
 	eps := aggregateRecords(zone)
 	if len(eps) != 1 || eps[0].DNSName != "example.com" {
 		t.Fatalf("apex DNSName: got %q want example.com (eps=%v)", eps[0].DNSName, eps)
+	}
+}
+
+func TestAggregateRecords_SmartLatencyDifferentZones(t *testing.T) {
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100, SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "2.2.2.2", Weight: 100, SmartRoutingType: SmartRoutingLatency, LatencyZone: "US"},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 2 {
+		t.Fatalf("expected 2 endpoints (one per zone), got %d", len(eps))
+	}
+	ids := map[string]bool{}
+	for _, ep := range eps {
+		ids[ep.SetIdentifier] = true
+	}
+	if !ids["latency:DE"] || !ids["latency:US"] {
+		t.Errorf("SetIdentifiers: got %v want [latency:DE latency:US]", ids)
+	}
+}
+
+func TestAggregateRecords_SmartLatencySameZoneAggregates(t *testing.T) {
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100, SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "2.2.2.2", Weight: 100, SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 1 {
+		t.Fatalf("expected 1 endpoint (same zone collapses), got %d", len(eps))
+	}
+	if eps[0].SetIdentifier != "latency:DE" {
+		t.Errorf("SetIdentifier: got %q want latency:DE", eps[0].SetIdentifier)
+	}
+	if len(eps[0].Targets) != 2 {
+		t.Errorf("Targets: got %v want 2 targets", eps[0].Targets)
+	}
+}
+
+func TestAggregateRecords_SmartGeo(t *testing.T) {
+	lat1, lng1 := 50.11, 8.68
+	lat2, lng2 := 38.13, -78.45
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100, SmartRoutingType: SmartRoutingGeolocation, GeolocationLatitude: &lat1, GeolocationLongitude: &lng1},
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "2.2.2.2", Weight: 100, SmartRoutingType: SmartRoutingGeolocation, GeolocationLatitude: &lat2, GeolocationLongitude: &lng2},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 2 {
+		t.Fatalf("expected 2 endpoints (one per coord pair), got %d", len(eps))
+	}
+	ids := map[string]bool{}
+	for _, ep := range eps {
+		ids[ep.SetIdentifier] = true
+	}
+	if !ids["geo:50.1100,8.6800"] || !ids["geo:38.1300,-78.4500"] {
+		t.Errorf("SetIdentifiers: got %v", ids)
+	}
+}
+
+func TestAggregateRecords_MixedSmartAndNonSmart(t *testing.T) {
+	zone := &Zone{
+		Domain: "example.com",
+		Records: []*Record{
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "1.1.1.1", Weight: 100, SmartRoutingType: SmartRoutingNone},
+			{Name: "api", Type: RecordTypeA, TTLSeconds: 300, Value: "2.2.2.2", Weight: 100, SmartRoutingType: SmartRoutingLatency, LatencyZone: "DE"},
+		},
+	}
+	eps := aggregateRecords(zone)
+	if len(eps) != 2 {
+		t.Fatalf("expected 2 endpoints, got %d", len(eps))
+	}
+	var nonSmart, smart *endpoint.Endpoint
+	for _, ep := range eps {
+		if ep.SetIdentifier == "" {
+			nonSmart = ep
+		} else {
+			smart = ep
+		}
+	}
+	if nonSmart == nil || nonSmart.Targets[0] != "1.1.1.1" {
+		t.Errorf("non-smart endpoint missing or wrong: %v", nonSmart)
+	}
+	if smart == nil || smart.SetIdentifier != "latency:DE" || smart.Targets[0] != "2.2.2.2" {
+		t.Errorf("smart endpoint missing or wrong: %v", smart)
 	}
 }

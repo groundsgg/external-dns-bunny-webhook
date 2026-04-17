@@ -1,21 +1,30 @@
 package bunny
 
 import (
+	"log/slog"
 	"strconv"
 
 	"sigs.k8s.io/external-dns/endpoint"
 )
 
 const (
-	providerSpecificDisabled    = "webhook/bunny-disabled"
-	providerSpecificMonitorType = "webhook/bunny-monitor-type"
-	providerSpecificWeight      = "webhook/bunny-weight"
+	providerSpecificDisabled         = "webhook/bunny-disabled"
+	providerSpecificMonitorType      = "webhook/bunny-monitor-type"
+	providerSpecificWeight           = "webhook/bunny-weight"
+	providerSpecificSmartType        = "webhook/bunny-smart-type"
+	providerSpecificSmartLatencyZone = "webhook/bunny-smart-latency-zone"
+	providerSpecificSmartGeoLat      = "webhook/bunny-smart-geo-lat"
+	providerSpecificSmartGeoLong     = "webhook/bunny-smart-geo-long"
 )
 
 type providerSpecificOptions struct {
 	Disabled    bool
 	MonitorType MonitorType
 	Weight      int
+	SmartType   SmartRoutingType
+	LatencyZone string
+	GeoLat      *float64
+	GeoLong     *float64
 }
 
 func providerSpecificOptionsFromEndpoint(e *endpoint.Endpoint) providerSpecificOptions {
@@ -53,7 +62,70 @@ func providerSpecificOptionsFromEndpoint(e *endpoint.Endpoint) providerSpecificO
 		opts.Weight = 100
 	}
 
+	opts.SmartType, opts.LatencyZone, opts.GeoLat, opts.GeoLong = parseSmartRouting(e)
+
 	return opts
+}
+
+// parseSmartRouting inspects the smart-routing ProviderSpecific keys on an
+// endpoint. Invalid or inconsistent configurations (unknown type, latency
+// without a zone, geo without coords, out-of-range coords) fall back to
+// SmartRoutingNone with a warn log. The goal is to never break reconcile
+// because of a typo — the basic DNS record still gets created.
+func parseSmartRouting(e *endpoint.Endpoint) (SmartRoutingType, string, *float64, *float64) {
+	raw, ok := e.GetProviderSpecificProperty(providerSpecificSmartType)
+	if !ok {
+		return SmartRoutingNone, "", nil, nil
+	}
+
+	st, recognized := SmartRoutingTypeFromString(raw)
+	if !recognized {
+		slog.Warn("Unknown smart-type annotation — falling back to none",
+			slog.String("dns_name", e.DNSName),
+			slog.String("smart_type", raw))
+		return SmartRoutingNone, "", nil, nil
+	}
+
+	switch st {
+	case SmartRoutingNone:
+		return SmartRoutingNone, "", nil, nil
+
+	case SmartRoutingLatency:
+		zone, ok := e.GetProviderSpecificProperty(providerSpecificSmartLatencyZone)
+		if !ok || zone == "" {
+			slog.Warn("smart-type=latency but no latency-zone — falling back to none",
+				slog.String("dns_name", e.DNSName))
+			return SmartRoutingNone, "", nil, nil
+		}
+		return SmartRoutingLatency, zone, nil, nil
+
+	case SmartRoutingGeolocation:
+		lat, latOK := parseCoord(e, providerSpecificSmartGeoLat, -90, 90)
+		lng, lngOK := parseCoord(e, providerSpecificSmartGeoLong, -180, 180)
+		if !latOK || !lngOK {
+			slog.Warn("smart-type=geo but lat/long missing or invalid — falling back to none",
+				slog.String("dns_name", e.DNSName))
+			return SmartRoutingNone, "", nil, nil
+		}
+		return SmartRoutingGeolocation, "", &lat, &lng
+	}
+
+	return SmartRoutingNone, "", nil, nil
+}
+
+func parseCoord(e *endpoint.Endpoint, key string, min, max float64) (float64, bool) {
+	raw, ok := e.GetProviderSpecificProperty(key)
+	if !ok || raw == "" {
+		return 0, false
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0, false
+	}
+	if v < min || v > max {
+		return 0, false
+	}
+	return v, true
 }
 
 func providerSpecificOptionsFromRecord(r *Record) *providerSpecificOptions {
@@ -61,6 +133,10 @@ func providerSpecificOptionsFromRecord(r *Record) *providerSpecificOptions {
 		MonitorType: r.MonitorType,
 		Weight:      r.Weight,
 		Disabled:    r.Disabled,
+		SmartType:   r.SmartRoutingType,
+		LatencyZone: r.LatencyZone,
+		GeoLat:      r.GeolocationLatitude,
+		GeoLong:     r.GeolocationLongitude,
 	}
 
 	return opts
@@ -70,4 +146,42 @@ func (p *providerSpecificOptions) ApplyToEndpoint(e *endpoint.Endpoint) {
 	e.WithProviderSpecific(providerSpecificMonitorType, p.MonitorType.String())
 	e.WithProviderSpecific(providerSpecificWeight, strconv.Itoa(p.Weight))
 	e.WithProviderSpecific(providerSpecificDisabled, strconv.FormatBool(p.Disabled))
+
+	// Smart keys are only emitted when set so non-smart endpoints stay clean.
+	if p.SmartType != SmartRoutingNone {
+		e.WithProviderSpecific(providerSpecificSmartType, p.SmartType.String())
+	}
+	if p.LatencyZone != "" {
+		e.WithProviderSpecific(providerSpecificSmartLatencyZone, p.LatencyZone)
+	}
+	if p.GeoLat != nil {
+		e.WithProviderSpecific(providerSpecificSmartGeoLat, strconv.FormatFloat(*p.GeoLat, 'f', -1, 64))
+	}
+	if p.GeoLong != nil {
+		e.WithProviderSpecific(providerSpecificSmartGeoLong, strconv.FormatFloat(*p.GeoLong, 'f', -1, 64))
+	}
+}
+
+// providerSpecificOptionsEqual compares two options by value, dereferencing
+// the coordinate pointers. Go's struct equality compares pointer addresses,
+// which is wrong here.
+func providerSpecificOptionsEqual(a, b providerSpecificOptions) bool {
+	if a.Disabled != b.Disabled ||
+		a.MonitorType != b.MonitorType ||
+		a.Weight != b.Weight ||
+		a.SmartType != b.SmartType ||
+		a.LatencyZone != b.LatencyZone {
+		return false
+	}
+	return floatPtrEqual(a.GeoLat, b.GeoLat) && floatPtrEqual(a.GeoLong, b.GeoLong)
+}
+
+func floatPtrEqual(a, b *float64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }
