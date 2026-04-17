@@ -2,10 +2,9 @@ package health
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
 	"log/slog"
-	"net"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -34,7 +33,6 @@ func (s *Server) SetHealthy(healthy bool) {
 	default:
 		slog.Warn("Service is unhealthy.")
 	}
-
 	s.healthy.Store(healthy)
 }
 
@@ -53,38 +51,34 @@ func (s *Server) Serve(ctx context.Context) error {
 		WriteTimeout: s.Options.WriteTimeout,
 	}
 
-	l, err := net.Listen("tcp", s.Options.Addr())
-	if err != nil {
-		log.Fatal(err)
-	}
-
+	shutdownErr := make(chan error, 1)
 	go func() {
 		<-ctx.Done()
-
-		if err := srv.Shutdown(ctx); err != nil {
-			log.Fatal(err)
-		}
-
-		l.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		shutdownErr <- srv.Shutdown(shutdownCtx)
 	}()
 
-	if err := srv.Serve(l); err != nil {
-		log.Fatal(err)
+	err := srv.ListenAndServe()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("health server: %w", err)
 	}
 
+	if err := <-shutdownErr; err != nil {
+		return fmt.Errorf("health server shutdown: %w", err)
+	}
 	return nil
 }
 
-func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	if s.Healthy() {
 		writeResponse(w, http.StatusOK, "Healthy")
 		return
 	}
-
 	writeResponse(w, http.StatusServiceUnavailable, "Not Healthy")
 }
 
 func writeResponse(w http.ResponseWriter, status int, message string) {
 	w.WriteHeader(status)
-	w.Write([]byte(message))
+	_, _ = w.Write([]byte(message))
 }
