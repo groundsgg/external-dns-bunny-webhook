@@ -28,37 +28,36 @@ func (r RecordType) String() string {
 	return [...]string{"A", "AAAA", "CNAME", "TXT", "MX", "RDR", "FLATTEN", "PZ", "SRV", "CAA", "PTR", "SCR", "NS"}[r]
 }
 
-func RecordTypeFromString(s string) RecordType {
+func RecordTypeFromString(s string) (RecordType, bool) {
 	switch s {
 	case "A":
-		return RecordTypeA
+		return RecordTypeA, true
 	case "AAAA":
-		return RecordTypeAAAA
+		return RecordTypeAAAA, true
 	case "CNAME":
-		return RecordTypeCNAME
+		return RecordTypeCNAME, true
 	case "TXT":
-		return RecordTypeTXT
+		return RecordTypeTXT, true
 	case "MX":
-		return RecordTypeMX
+		return RecordTypeMX, true
 	case "RDR":
-		return RecordTypeRDR
+		return RecordTypeRDR, true
 	case "FLATTEN":
-		return RecordTypeFlatten
+		return RecordTypeFlatten, true
 	case "PZ":
-		return RecordTypePZ
+		return RecordTypePZ, true
 	case "SRV":
-		return RecordTypeSRV
+		return RecordTypeSRV, true
 	case "CAA":
-		return RecordTypeCAA
+		return RecordTypeCAA, true
 	case "PTR":
-		return RecordTypePTR
+		return RecordTypePTR, true
 	case "SCR":
-		return RecordTypeSCR
+		return RecordTypeSCR, true
 	case "NS":
-		return RecordTypeNS
+		return RecordTypeNS, true
 	}
-
-	return RecordType(-1)
+	return RecordType(0), false
 }
 
 // MonitorType is an enum for the type of monitor attached to a record.
@@ -71,6 +70,9 @@ const (
 )
 
 func (m MonitorType) String() string {
+	if m < MonitorTypeNone || m > MonitorTypeHTTP {
+		return "none"
+	}
 	return [...]string{"none", "ping", "http"}[m]
 }
 

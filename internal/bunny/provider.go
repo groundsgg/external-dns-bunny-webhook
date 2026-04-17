@@ -326,10 +326,17 @@ func (p *Provider) createEndpoints(ctx context.Context, creates []*endpoint.Endp
 			return errs.Wrapf(err, "failed to create record %q", create.DNSName)
 		}
 
+		recType, ok := RecordTypeFromString(create.RecordType)
+		if !ok {
+			slog.Warn("Skipping create: unsupported record type",
+				slog.String("dns_name", create.DNSName),
+				slog.String("type", create.RecordType))
+			continue
+		}
 		for _, target := range create.Targets {
 			record := CreateRecordRequest{
 				Name:        recordName,
-				Type:        RecordTypeFromString(create.RecordType),
+				Type:        recType,
 				Value:       target,
 				TTLSeconds:  int(create.RecordTTL),
 				MonitorType: opts.MonitorType,
@@ -408,9 +415,16 @@ func (p *Provider) updateEndpoints(
 			if _, existed := oldTargets[t]; existed {
 				continue
 			}
+			recType, ok := RecordTypeFromString(desired.RecordType)
+			if !ok {
+				slog.Warn("Skipping update create: unsupported record type",
+					slog.String("dns_name", desired.DNSName),
+					slog.String("type", desired.RecordType))
+				continue
+			}
 			record := CreateRecordRequest{
 				Name:        recordName,
-				Type:        RecordTypeFromString(desired.RecordType),
+				Type:        recType,
 				Value:       t,
 				TTLSeconds:  int(desired.RecordTTL),
 				MonitorType: opts.MonitorType,
